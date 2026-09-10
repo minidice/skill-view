@@ -1,6 +1,6 @@
 ---
 name: skill-view
-description: 로컬에 설치된 Claude Code 스킬을 스캔해서 이름, 하는 일, 실행 커맨드, 설치·삭제 방법을 한국어 HTML 카탈로그로 만들어 보여준다. "무슨 스킬 깔려 있지", "스킬 목록 보여줘", "스킬 정리", "이 스킬 어떻게 지워", "what skills do I have" 같은 요청에 사용한다. 스킬을 새로 만들거나 편집할 때는 쓰지 않는다.
+description: 로컬에 설치된 Claude Code 스킬을 스캔해서 이름, 하는 일, 사용 예시, 실행 커맨드, 설치·삭제 방법을 담은 HTML 카탈로그로 만들어 보여준다. 사용자가 쓰는 언어로 출력한다. "무슨 스킬 깔려 있지", "스킬 목록 보여줘", "스킬 정리", "이 스킬 어떻게 지워", "what skills do I have" 같은 요청에 사용한다. 스킬을 새로 만들거나 편집할 때는 쓰지 않는다.
 argument-hint: "[이름·설명에서 찾을 단어] [--source personal|project|plugin|builtin]"
 ---
 
@@ -20,7 +20,7 @@ argument-hint: "[이름·설명에서 찾을 단어] [--source personal|project|
 이 스킬이 로드될 때 함께 주어지는 **`Base directory for this skill:` 경로**를 쓴다.
 
 ```bash
-node "<base directory>/scripts/scan-skills.mjs" --html "<스크래치패드>/skills.html" --bundled "<스크래치패드>/bundled.json" [검색어]
+node "<base directory>/scripts/scan-skills.mjs" --html "<스크래치패드>/skills.html" --bundled "<스크래치패드>/bundled.json" --lang <ko|en> [검색어]
 ```
 
 `--bundled`에 넣을 파일은 **실행 전에 직접 만든다.** 만드는 법은 아래 "Anthropic 기본 스킬" 참고.
@@ -41,10 +41,24 @@ node "<base directory>/scripts/scan-skills.mjs" --html "<스크래치패드>/ski
 | `--enabled-only` | 비활성 플러그인의 스킬 제외 |
 | `--full` | (마크다운 전용) 설명을 200자에서 자르지 않음 |
 | `--json` | 원본 데이터. description 전문과 `install`·`removal`·`examples` 필드 포함 |
-| `--cache <경로>` | 번역 캐시 JSON이 있으면 설명을 한국어로 치환 |
+| `--lang ko\|en` | UI 라벨 언어. **매번 명시한다** (아래 "언어" 참고) |
+| `--cache <경로>` | 번역 캐시 JSON이 있으면 설명을 치환 |
 
 `--html` 없이 부르면 마크다운 표가 나온다. 그건 다른 스킬이 파이프로 쓰거나 사용자가 명시적으로
 "표로 줘"라고 할 때만 쓴다.
+
+## 언어
+
+**사용자가 이 대화에서 쓰는 언어를 따른다.** 시스템 로케일이 아니다 — 영어 Windows를 쓰는
+한국어 사용자가 한국어로 물었으면 한국어로 준다.
+
+- `--lang ko` 또는 `--lang en`을 **매번 명시한다.** 안 주면 스크립트가 시스템 로케일로
+  떨어지는데, 그건 직접 실행했을 때의 폴백이지 여기서 기대는 값이 아니다.
+- `--lang`은 **UI 라벨만** 바꾼다 (`설치`/`Install`, `이렇게 쓰면`/`How to use it`, 출처 이름).
+- **스킬 설명(`description`)과 예시(`examples`)는 내가 쓰는 내용이므로 같은 언어로 적는다.**
+  라벨은 영어인데 설명이 한국어면 반쪽짜리다.
+- `ko`/`en` 외의 언어로 물어보면 `--lang en`으로 라벨을 두고 설명·예시는 그 언어로 적는다.
+  라벨까지 필요하면 `STRINGS`에 항목을 추가하면 된다 (`scripts/scan-skills.mjs` 상단).
 
 ## 이 스킬을 부르는 예시
 
@@ -108,8 +122,8 @@ node "<base directory>/scripts/scan-skills.mjs" --html "<스크래치패드>/ski
 
 - `namespace`는 커맨드에 접두사가 붙는 스킬만 넣는다 (`anthropic-skills:docx` → `/anthropic-skills:docx`).
   접두사가 없으면 생략하거나 빈 문자열.
-- `description`은 **한국어로 한 줄 요약해서** 적는다. 이 스킬의 존재 이유가 한국어로 훑어보기다.
-  영어 원문을 그대로 붙여넣지 않는다.
+- `description`은 **사용자 언어로 한 줄 요약해서** 적는다 (위 "언어" 참고). 원문 description은
+  대부분 영어이고 길다. 그대로 붙여넣으면 훑어볼 수가 없다.
 - 이 목록은 매 세션 새로 적는다. 하드코딩된 표를 스킬 안에 두지 않는 이유는 Anthropic이 스킬을
   추가·제거할 때마다 낡기 때문이다.
 

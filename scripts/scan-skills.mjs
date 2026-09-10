@@ -21,6 +21,188 @@ import path from "node:path";
 // frontmatter에서 실제로 쓰는 키만 뽑는다. 나머지는 무시.
 const WANTED_KEYS = new Set(["name", "description", "argument-hint"]);
 
+// ---------------------------------------------------------------------------
+// 문구 (UI 라벨만. 스킬 설명과 예시는 호출자가 사용자 언어로 넣어 준다)
+// ---------------------------------------------------------------------------
+
+const STRINGS = {
+  ko: {
+    locale: "ko-KR",
+    docTitle: "Claude Code 스킬 카탈로그",
+    pageTitle: "스킬 카탈로그",
+    lede: (n) =>
+      `지금 이 세션에서 부를 수 있는 스킬 ${n}개입니다. 각 카드에 무엇을 하는 스킬인지와 호출 커맨드가 적혀 있고, ` +
+      "직접 설치한 스킬에는 설치·삭제 방법이 함께 붙어 있습니다.",
+    source: { project: "프로젝트", personal: "개인", plugin: "플러그인", builtin: "Anthropic 기본" },
+    tallyAll: "전체",
+    tallyInstalled: "직접 설치",
+    metaScanned: "스캔",
+    metaProject: "프로젝트",
+    metaHome: "Claude 홈",
+    searchPlaceholder: "이름·설명·커맨드 검색",
+    searchLabel: "스킬 검색",
+    noResult: "조건에 맞는 스킬이 없습니다.",
+    emptyHere: "이 위치에는 설치된 스킬이 없습니다.",
+    emptyPlugins: "설치된 플러그인 스킬이 없습니다.",
+    builtinRoot: "설치 위치 없음 — 세션에 기본 제공",
+    builtinNote:
+      "Claude Code가 들고 있는 스킬이라 디스크에 파일로 없고, 설치·삭제 대상도 아닙니다. " +
+      "커맨드만 알아 두면 바로 부를 수 있습니다.",
+    builtinNamespaces: (list) => ` <code>${list}</code> 네임스페이스는 커맨드에 접두사가 붙습니다.`,
+    builtinCard: "Claude Code에 기본 제공 — 따로 설치하거나 지울 수 없습니다.",
+    usesLabel: "이렇게 쓰면",
+    howtoInstall: "설치",
+    howtoRemove: "삭제",
+    howtoPath: "위치",
+    noDesc: "설명 없음",
+    badgeDisabled: "비활성",
+    pluginSkillCount: (n) => `스킬 ${n}개`,
+    pluginUnregistered: "설치 목록에 없음",
+    pluginDisabled: "비활성 — 지금은 호출되지 않습니다",
+    pluginBundle: (n) => `이 플러그인의 스킬은 개별로 설치·삭제되지 않고 ${n}개가 함께 움직입니다.`,
+    dupesTitle: (n) => `이름이 겹치는 스킬 ${n}종`,
+    dupesNote: "같은 이름이 여러 곳에 설치돼 있습니다. 한쪽을 지워도 다른 쪽은 그대로 남습니다.",
+    installDir: (dir) => `SKILL.md가 든 폴더를 ${dir} 아래에 두면 설치됩니다`,
+    removeDir: (dir) => `디렉터리 삭제: ${dir}`,
+    mdHeading: (n, m) => `# 스킬 ${n}개 (이름 기준 ${m}종)`,
+    mdSection: (title, n) => `## ${title} — ${n}개`,
+    mdNone: "_없음_",
+    mdFlatHint: (root) => `> 설치: \`${root}\` 아래에 SKILL.md가 든 폴더를 둡니다. · 삭제: 그 폴더를 지웁니다.`,
+    mdPluginGroup: (ref, version, n) => `### ${ref} (v${version}, ${n}개)`,
+    mdPluginEnable: (ref) => `> 비활성 상태라 아래 스킬은 지금 호출되지 않습니다. 켜기: \`claude plugin enable ${ref}\``,
+    mdPluginHint: (ref, n) =>
+      `> 설치: \`claude plugin install ${ref}\` · 삭제: \`claude plugin uninstall ${ref}\` ` +
+      `(개별 스킬만 지울 수는 없고 아래 ${n}개가 함께 움직입니다)`,
+    mdBuiltinHint: "> 세션에 기본 제공되는 스킬입니다. 디스크에 파일로 없어 설치·삭제 대상이 아닙니다.",
+    mdTableHead: "| 스킬 | 커맨드 | 하는 일 |",
+    mdDupesTitle: (n) => `## ⚠ 중복 — ${n}종`,
+    mdDupesNote: "같은 이름이 여러 곳에 설치돼 있습니다. 한쪽을 지워도 다른 쪽이 남습니다.",
+    mdDupesRow: (origins, n, names) => `- **${origins}** — ${n}종: ${names}`,
+    htmlWritten: (n, target) => `HTML 카탈로그 ${n}개 항목 → ${target}`,
+    flagUnknown: (arg) => `오류: 알 수 없는 옵션 ${arg}`,
+    flagNeedsValue: (arg) => `오류: ${arg} 에 값이 필요합니다.`,
+    flagBadSource: (v) => `오류: --source 는 project|personal|plugin|builtin 중 하나여야 합니다 (받은 값: ${v})`,
+    flagBadLang: (v) => `오류: --lang 은 ko|en 중 하나여야 합니다 (받은 값: ${v})`,
+    usage: `사용법: node scan-skills.mjs [검색어] [옵션]
+
+로컬 Claude Code 스킬 스캐너
+
+  검색어                      이름·설명·예시 검색 (대소문자 무시)
+  --html <경로>               HTML 카탈로그를 그 경로에 쓴다 (기본 출력 형식)
+  --bundled <경로>            기본 스킬 목록 + 사용 예시 JSON
+                              [{ name, description, namespace, examples }]
+  --lang ko|en                UI 문구 언어 (기본: 시스템 로케일)
+  --source <출처>             project|personal|plugin|builtin. 여러 번 지정 가능
+  --enabled-only              비활성 플러그인의 스킬은 제외
+  --full                      마크다운에서 설명을 자르지 않음
+  --json                      원본 데이터 출력 (description 전문 포함)
+  --project <경로>            프로젝트 루트 (기본: 현재 디렉터리)
+  --claude-home <경로>        Claude 홈 (기본: ~/.claude)
+  --cache <경로>              번역 캐시 JSON (있으면 설명을 치환)
+  -h, --help                  이 도움말
+`,
+  },
+
+  en: {
+    locale: "en-US",
+    docTitle: "Claude Code Skill Catalog",
+    pageTitle: "Skill Catalog",
+    lede: (n) =>
+      `${n} skills you can call in this session. Each card says what the skill does and how to invoke it; ` +
+      "skills you installed yourself also carry their install and removal steps.",
+    source: { project: "Project", personal: "Personal", plugin: "Plugin", builtin: "Anthropic built-in" },
+    tallyAll: "All",
+    tallyInstalled: "Installed",
+    metaScanned: "Scanned",
+    metaProject: "Project",
+    metaHome: "Claude home",
+    searchPlaceholder: "Search name, description, command",
+    searchLabel: "Search skills",
+    noResult: "No skills match those filters.",
+    emptyHere: "No skills installed here.",
+    emptyPlugins: "No plugin skills installed.",
+    builtinRoot: "No install path — provided by the session",
+    builtinNote:
+      "Claude Code carries these itself, so they have no files on disk and nothing to install or remove. " +
+      "Knowing the command is all you need.",
+    builtinNamespaces: (list) => ` Skills under <code>${list}</code> take that prefix in their command.`,
+    builtinCard: "Built into Claude Code — nothing to install or remove.",
+    usesLabel: "How to use it",
+    howtoInstall: "Install",
+    howtoRemove: "Remove",
+    howtoPath: "Path",
+    noDesc: "No description",
+    badgeDisabled: "disabled",
+    pluginSkillCount: (n) => `${n} skill${n === 1 ? "" : "s"}`,
+    pluginUnregistered: "not in the install list",
+    pluginDisabled: "disabled — not callable right now",
+    pluginBundle: (n) => `These skills install and uninstall together — all ${n} of them, never one at a time.`,
+    dupesTitle: (n) => `${n} name${n === 1 ? "" : "s"} installed twice`,
+    dupesNote: "The same name is installed in more than one place. Removing one leaves the other in place.",
+    installDir: (dir) => `Put a folder containing SKILL.md under ${dir}`,
+    removeDir: (dir) => `Delete the directory: ${dir}`,
+    mdHeading: (n, m) => `# ${n} skill${n === 1 ? "" : "s"} (${m} distinct name${m === 1 ? "" : "s"})`,
+    mdSection: (title, n) => `## ${title} — ${n}`,
+    mdNone: "_none_",
+    mdFlatHint: (root) => `> Install: put a folder containing SKILL.md under \`${root}\`. · Remove: delete that folder.`,
+    mdPluginGroup: (ref, version, n) => `### ${ref} (v${version}, ${n})`,
+    mdPluginEnable: (ref) => `> Disabled, so these are not callable right now. Enable: \`claude plugin enable ${ref}\``,
+    mdPluginHint: (ref, n) =>
+      `> Install: \`claude plugin install ${ref}\` · Remove: \`claude plugin uninstall ${ref}\` ` +
+      `(all ${n} move together — you cannot remove just one)`,
+    mdBuiltinHint: "> Provided by the session. No files on disk, so nothing to install or remove.",
+    mdTableHead: "| Skill | Command | What it does |",
+    mdDupesTitle: (n) => `## ⚠ Duplicates — ${n}`,
+    mdDupesNote: "The same name is installed in more than one place. Removing one leaves the other.",
+    mdDupesRow: (origins, n, names) => `- **${origins}** — ${n}: ${names}`,
+    htmlWritten: (n, target) => `HTML catalog, ${n} entries → ${target}`,
+    flagUnknown: (arg) => `error: unknown option ${arg}`,
+    flagNeedsValue: (arg) => `error: ${arg} needs a value.`,
+    flagBadSource: (v) => `error: --source must be project|personal|plugin|builtin (got: ${v})`,
+    flagBadLang: (v) => `error: --lang must be ko|en (got: ${v})`,
+    usage: `Usage: node scan-skills.mjs [query] [options]
+
+Local Claude Code skill scanner
+
+  query                       search name, description and examples (case-insensitive)
+  --html <path>               write the HTML catalog there (the primary output)
+  --bundled <path>            built-in skill list + usage examples, as JSON
+                              [{ name, description, namespace, examples }]
+  --lang ko|en                language for UI labels (default: system locale)
+  --source <source>           project|personal|plugin|builtin. Repeatable
+  --enabled-only              skip skills from disabled plugins
+  --full                      do not truncate descriptions in markdown
+  --json                      raw data (full descriptions included)
+  --project <path>            project root (default: current directory)
+  --claude-home <path>        Claude home (default: ~/.claude)
+  --cache <path>              translation cache JSON, applied to descriptions
+  -h, --help                  this help
+`,
+  },
+};
+
+/**
+ * 시스템 로케일에서 언어를 고른다.
+ *
+ * 호출자가 `--lang`을 주면 그게 이긴다. Claude가 이 스킬을 부를 때는 사용자가 대화에서
+ * 쓰는 언어를 넘기므로, 로케일은 직접 실행했을 때의 폴백이다.
+ */
+function detectLang() {
+  const env = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || "";
+  let tag = env.split(".")[0].replace("_", "-");
+  if (!tag) {
+    try {
+      tag = Intl.DateTimeFormat().resolvedOptions().locale || "";
+    } catch {
+      tag = "";
+    }
+  }
+  return tag.toLowerCase().startsWith("ko") ? "ko" : "en";
+}
+
+// 렌더 함수 전부에 인자로 끌고 다니는 대신 실행당 한 번 정한다.
+let T = STRINGS[detectLang()];
+
 // 마크다운 표에 넣을 설명 길이. 원문 전체는 --json으로 받는다.
 const DESC_LIMIT = 200;
 
@@ -338,7 +520,7 @@ function loadBundled(cachePath, installedNames) {
 
 function removalHint(source, plugin, dir) {
   if (source === "plugin" && plugin) return `claude plugin uninstall ${plugin.ref}`;
-  return `디렉터리 삭제: ${dir}`;
+  return T.removeDir(dir);
 }
 
 /**
@@ -349,7 +531,7 @@ function installHint(source, plugin, dir) {
   if (source === "plugin" && plugin) {
     return `claude plugin install ${plugin.ref}${plugin.enabled ? "" : ` → claude plugin enable ${plugin.ref}`}`;
   }
-  return `SKILL.md가 든 폴더를 ${path.dirname(dir)} 아래에 두면 설치됩니다`;
+  return T.installDir(path.dirname(dir));
 }
 
 // ---------------------------------------------------------------------------
@@ -381,7 +563,7 @@ function cell(text, limit = DESC_LIMIT) {
 
 function renderTable(entries, translations, full) {
   const limit = full ? null : DESC_LIMIT;
-  const lines = ["| 스킬 | 커맨드 | 하는 일 |", "|---|---|---|"];
+  const lines = [T.mdTableHead, "|---|---|---|"];
   for (const e of [...entries].sort((a, b) => (a.name < b.name ? -1 : 1))) {
     const desc = translations.get(descKey(e.description)) ?? e.description;
     lines.push(`| ${cell(e.name, null)} | \`${cell(e.command, null)}\` | ${cell(desc, limit)} |`);
@@ -396,29 +578,28 @@ function renderMarkdown(entries, translations, projectDir, claudeHome, full) {
     byName.get(e.name).push(e);
   }
 
-  const out = [`# 설치된 스킬 ${entries.length}개 (이름 기준 ${byName.size}종)`, ""];
+  const out = [T.mdHeading(entries.length, byName.size), ""];
 
   const flat = [
-    ["project", `프로젝트 — \`${path.join(projectDir, ".claude", "skills")}\``],
-    ["personal", `개인 — \`${path.join(claudeHome, "skills")}\``],
+    ["project", path.join(projectDir, ".claude", "skills")],
+    ["personal", path.join(claudeHome, "skills")],
   ];
-  for (const [source, title] of flat) {
+  for (const [source, root] of flat) {
     const group = entries.filter((e) => e.source === source);
-    out.push(`## ${title} — ${group.length}개`, "");
+    out.push(T.mdSection(`${T.source[source]} — \`${root}\``, group.length), "");
     if (group.length === 0) {
-      out.push("_없음_");
+      out.push(T.mdNone);
     } else {
-      const root = source === "project" ? path.join(projectDir, ".claude", "skills") : path.join(claudeHome, "skills");
-      out.push(`> 설치: \`${root}\` 아래에 SKILL.md가 든 폴더를 둡니다. · 삭제: 그 폴더를 지웁니다.`, "");
+      out.push(T.mdFlatHint(root), "");
       out.push(...renderTable(group, translations, full));
     }
     out.push("");
   }
 
   const plugins = entries.filter((e) => e.source === "plugin");
-  out.push(`## 플러그인 — ${plugins.length}개`, "");
+  out.push(T.mdSection(T.source.plugin, plugins.length), "");
   if (plugins.length === 0) {
-    out.push("_없음_", "");
+    out.push(T.mdNone, "");
   } else {
     const grouped = new Map();
     for (const e of plugins) {
@@ -430,30 +611,24 @@ function renderMarkdown(entries, translations, projectDir, claudeHome, full) {
       const group = grouped.get(ref);
       const plugin = group[0].plugin;
       const flags = [];
-      if (!plugin.registered) flags.push("⚠ 설치 목록에 없음");
-      if (!plugin.enabled) flags.push("⏸ 비활성");
+      if (!plugin.registered) flags.push(`⚠ ${T.pluginUnregistered}`);
+      if (!plugin.enabled) flags.push(`⏸ ${T.badgeDisabled}`);
       const suffix = flags.length ? ` — ${flags.join(", ")}` : "";
 
-      out.push(`### ${ref} (v${plugin.version}, ${group.length}개)${suffix}`, "");
-      if (!plugin.enabled) {
-        out.push(`> 비활성 상태라 아래 스킬은 지금 호출되지 않습니다. 켜기: \`claude plugin enable ${ref}\``);
-      }
-      out.push(
-        `> 설치: \`claude plugin install ${ref}\` · 삭제: \`claude plugin uninstall ${ref}\` ` +
-          `(개별 스킬만 지울 수는 없고 아래 ${group.length}개가 함께 움직입니다)`,
-        "",
-      );
+      out.push(`${T.mdPluginGroup(ref, plugin.version, group.length)}${suffix}`, "");
+      if (!plugin.enabled) out.push(T.mdPluginEnable(ref));
+      out.push(T.mdPluginHint(ref, group.length), "");
       out.push(...renderTable(group, translations, full));
       out.push("");
     }
   }
 
   const builtins = entries.filter((e) => e.source === "builtin");
-  out.push(`## Anthropic 기본 — ${builtins.length}개`, "");
+  out.push(T.mdSection(T.source.builtin, builtins.length), "");
   if (builtins.length === 0) {
-    out.push("_없음_", "");
+    out.push(T.mdNone, "");
   } else {
-    out.push("> 세션에 기본 제공되는 스킬입니다. 디스크에 파일로 없어 설치·삭제 대상이 아닙니다.", "");
+    out.push(T.mdBuiltinHint, "");
     out.push(...renderTable(builtins, translations, full));
     out.push("");
   }
@@ -472,11 +647,11 @@ function renderMarkdown(entries, translations, projectDir, claudeHome, full) {
       byOrigin.get(origins).push(name);
     }
 
-    out.push(`## ⚠ 중복 — ${dupes.length}종`, "");
-    out.push("같은 이름이 여러 곳에 설치돼 있습니다. 한쪽을 지워도 다른 쪽이 남습니다.", "");
+    out.push(T.mdDupesTitle(dupes.length), "");
+    out.push(T.mdDupesNote, "");
     for (const origins of [...byOrigin.keys()].sort()) {
       const names = byOrigin.get(origins).sort();
-      out.push(`- **${origins}** — ${names.length}종: ${names.join(", ")}`);
+      out.push(T.mdDupesRow(origins, names.length, names.join(", ")));
     }
     out.push("");
   }
@@ -487,8 +662,6 @@ function renderMarkdown(entries, translations, projectDir, claudeHome, full) {
 // ---------------------------------------------------------------------------
 // HTML 카탈로그
 // ---------------------------------------------------------------------------
-
-const SOURCE_LABEL = { project: "프로젝트", personal: "개인", plugin: "플러그인", builtin: "Anthropic 기본" };
 
 function esc(text) {
   return String(text)
@@ -517,10 +690,10 @@ function skillCard(entry, translations) {
     .join(" ")
     .toLowerCase();
 
-  const badges = [`<span class="badge src-${entry.source}">${SOURCE_LABEL[entry.source]}</span>`];
+  const badges = [`<span class="badge src-${entry.source}">${T.source[entry.source]}</span>`];
   if (entry.plugin) {
     badges.push(`<span class="badge plain">${esc(entry.plugin.ref)}</span>`);
-    if (!entry.plugin.enabled) badges.push('<span class="badge warn">비활성</span>');
+    if (!entry.plugin.enabled) badges.push(`<span class="badge warn">${esc(T.badgeDisabled)}</span>`);
   }
 
   // 설명만으로는 "그래서 뭐라고 치라는 거냐"가 안 풀린다. 실제 문장과 그 결과를 붙인다.
@@ -528,7 +701,7 @@ function skillCard(entry, translations) {
   const uses = examples.length
     ? [
         '  <div class="uses">',
-        '    <p class="uses-label">이렇게 쓰면</p>',
+        `    <p class="uses-label">${esc(T.usesLabel)}</p>`,
         `    <ul>${examples
           .map(
             (ex) =>
@@ -544,12 +717,12 @@ function skillCard(entry, translations) {
   // 기본 스킬은 설치한 적이 없으니 설치·삭제 줄을 붙이지 않는다.
   const howto =
     entry.source === "builtin"
-      ? ['  <p class="bundled-note">Claude Code에 기본 제공 — 따로 설치하거나 지울 수 없습니다.</p>']
+      ? [`  <p class="bundled-note">${esc(T.builtinCard)}</p>`]
       : [
           '  <dl class="howto">',
-          `    <dt>설치</dt><dd>${esc(entry.install)}</dd>`,
-          `    <dt>삭제</dt><dd>${esc(entry.removal)}</dd>`,
-          `    <dt>위치</dt><dd class="path">${esc(entry.path)}</dd>`,
+          `    <dt>${esc(T.howtoInstall)}</dt><dd>${esc(entry.install)}</dd>`,
+          `    <dt>${esc(T.howtoRemove)}</dt><dd>${esc(entry.removal)}</dd>`,
+          `    <dt>${esc(T.howtoPath)}</dt><dd class="path">${esc(entry.path)}</dd>`,
           "  </dl>",
         ];
 
@@ -560,7 +733,7 @@ function skillCard(entry, translations) {
     `    <div class="badges">${badges.join("")}</div>`,
     "  </div>",
     `  <p class="cmd"><code>${esc(entry.command)}</code></p>`,
-    `  <p class="desc">${esc(desc) || "<span class=\"none\">설명 없음</span>"}</p>`,
+    `  <p class="desc">${esc(desc) || `<span class="none">${esc(T.noDesc)}</span>`}</p>`,
     ...uses,
     ...howto,
     "</article>",
@@ -594,14 +767,14 @@ function renderHtml(entries, translations, projectDir, claudeHome) {
     const group = entries.filter((e) => e.source === source);
     sections.push(
       `<section class="group" data-source="${source}">`,
-      `  <div class="group-head"><h2>${SOURCE_LABEL[source]}</h2><span class="count">${group.length}</span>` +
+      `  <div class="group-head"><h2>${T.source[source]}</h2><span class="count">${group.length}</span>` +
         `<code class="root">${esc(root)}</code></div>`,
       group.length
         ? `  <div class="grid">${group
             .sort((a, b) => (a.name < b.name ? -1 : 1))
             .map((e) => skillCard(e, translations))
             .join("\n")}</div>`
-        : '  <p class="empty">이 위치에는 설치된 스킬이 없습니다.</p>',
+        : `  <p class="empty">${esc(T.emptyHere)}</p>`,
       "</section>",
     );
   }
@@ -615,22 +788,22 @@ function renderHtml(entries, translations, projectDir, claudeHome) {
 
   sections.push(
     '<section class="group" data-source="plugin">',
-    `  <div class="group-head"><h2>플러그인</h2><span class="count">${plugins.length}</span>` +
+    `  <div class="group-head"><h2>${esc(T.source.plugin)}</h2><span class="count">${plugins.length}</span>` +
       `<code class="root">${esc(path.join(claudeHome, "plugins", "cache"))}</code></div>`,
   );
   if (!plugins.length) {
-    sections.push('  <p class="empty">설치된 플러그인 스킬이 없습니다.</p>');
+    sections.push(`  <p class="empty">${esc(T.emptyPlugins)}</p>`);
   } else {
     for (const ref of [...grouped.keys()].sort()) {
       const group = grouped.get(ref);
       const plugin = group[0].plugin;
-      const notes = [`v${plugin.version}`, `스킬 ${group.length}개`];
-      if (!plugin.registered) notes.push("설치 목록에 없음");
-      if (!plugin.enabled) notes.push("비활성 — 지금은 호출되지 않습니다");
+      const notes = [`v${plugin.version}`, T.pluginSkillCount(group.length)];
+      if (!plugin.registered) notes.push(T.pluginUnregistered);
+      if (!plugin.enabled) notes.push(T.pluginDisabled);
       sections.push(
         '  <div class="plugin-head">',
         `    <h3>${esc(ref)}</h3><span class="note">${esc(notes.join(" · "))}</span>`,
-        `    <p class="bundle">이 플러그인의 스킬은 개별로 설치·삭제되지 않고 ${group.length}개가 함께 움직입니다.</p>`,
+        `    <p class="bundle">${esc(T.pluginBundle(group.length))}</p>`,
         "  </div>",
         `  <div class="grid">${group
           .sort((a, b) => (a.name < b.name ? -1 : 1))
@@ -646,12 +819,11 @@ function renderHtml(entries, translations, projectDir, claudeHome) {
     const namespaces = [...new Set(builtins.map((e) => e.namespace).filter(Boolean))].sort();
     sections.push(
       '<section class="group" data-source="builtin">',
-      `  <div class="group-head"><h2>Anthropic 기본</h2><span class="count">${builtins.length}</span>` +
-        '<span class="root">설치 위치 없음 — 세션에 기본 제공</span></div>',
-      '  <p class="group-note">Claude Code가 들고 있는 스킬이라 디스크에 파일로 없고, 설치·삭제 대상도 아닙니다. ' +
-        `커맨드만 알아 두면 바로 부를 수 있습니다.${
-          namespaces.length ? ` <code>${esc(namespaces.join(", "))}</code> 네임스페이스는 커맨드에 접두사가 붙습니다.` : ""
-        }</p>`,
+      `  <div class="group-head"><h2>${esc(T.source.builtin)}</h2><span class="count">${builtins.length}</span>` +
+        `<span class="root">${esc(T.builtinRoot)}</span></div>`,
+      `  <p class="group-note">${esc(T.builtinNote)}${
+        namespaces.length ? T.builtinNamespaces(esc(namespaces.join(", "))) : ""
+      }</p>`,
       `  <div class="grid">${builtins.map((e) => skillCard(e, translations)).join("\n")}</div>`,
       "</section>",
     );
@@ -661,19 +833,19 @@ function renderHtml(entries, translations, projectDir, claudeHome) {
     const rows = dupes
       .sort((a, b) => (a[0] < b[0] ? -1 : 1))
       .map(([name, group]) => {
-        const origins = group.map((e) => (e.plugin ? e.plugin.ref : SOURCE_LABEL[e.source])).sort();
+        const origins = group.map((e) => (e.plugin ? e.plugin.ref : T.source[e.source])).sort();
         return `<li><strong>${esc(name)}</strong><span>${esc(origins.join(" ↔ "))}</span></li>`;
       });
     sections.push(
       '<section class="dupes">',
-      `  <h2>이름이 겹치는 스킬 ${dupes.length}종</h2>`,
-      "  <p>같은 이름이 여러 곳에 설치돼 있습니다. 한쪽을 지워도 다른 쪽은 그대로 남습니다.</p>",
+      `  <h2>${esc(T.dupesTitle(dupes.length))}</h2>`,
+      `  <p>${esc(T.dupesNote)}</p>`,
       `  <ul>${rows.join("")}</ul>`,
       "</section>",
     );
   }
 
-  const scannedAt = new Date().toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
+  const scannedAt = new Date().toLocaleString(T.locale, { dateStyle: "medium", timeStyle: "short" });
 
   const css = `
 :root {
@@ -887,7 +1059,7 @@ body.filtered #noresult.on { display: block; }
 })();
 `.trim();
 
-  return `<title>Claude Code 스킬 카탈로그</title>
+  return `<title>${esc(T.docTitle)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
@@ -897,31 +1069,31 @@ ${css}
 
 <div class="wrap">
   <header class="top">
-    <h1>스킬 카탈로그</h1>
-    <p class="lede">지금 이 세션에서 부를 수 있는 스킬 ${entries.length}개입니다. 각 카드에 무엇을 하는 스킬인지와 호출 커맨드가 적혀 있고, 직접 설치한 스킬에는 설치·삭제 방법이 함께 붙어 있습니다.</p>
+    <h1>${esc(T.pageTitle)}</h1>
+    <p class="lede">${esc(T.lede(entries.length))}</p>
     <div class="tally">
-      <b>전체 <span>${entries.length}</span></b>
-      <b>직접 설치 <span>${installed}</span></b>
-      <b>개인 <span>${counts.personal}</span></b>
-      <b>프로젝트 <span>${counts.project}</span></b>
-      <b>플러그인 <span>${counts.plugin}</span></b>
-      <b>Anthropic 기본 <span>${counts.builtin}</span></b>
+      <b>${esc(T.tallyAll)} <span>${entries.length}</span></b>
+      <b>${esc(T.tallyInstalled)} <span>${installed}</span></b>
+      <b>${esc(T.source.personal)} <span>${counts.personal}</span></b>
+      <b>${esc(T.source.project)} <span>${counts.project}</span></b>
+      <b>${esc(T.source.plugin)} <span>${counts.plugin}</span></b>
+      <b>${esc(T.source.builtin)} <span>${counts.builtin}</span></b>
     </div>
     <div class="meta">
-      <span>스캔 ${esc(scannedAt)}</span>
-      <span>프로젝트 ${esc(projectDir)}</span>
-      <span>Claude 홈 ${esc(claudeHome)}</span>
+      <span>${esc(T.metaScanned)} ${esc(scannedAt)}</span>
+      <span>${esc(T.metaProject)} ${esc(projectDir)}</span>
+      <span>${esc(T.metaHome)} ${esc(claudeHome)}</span>
     </div>
   </header>
 
   <div class="controls">
-    <input id="q" type="search" placeholder="이름·설명·커맨드 검색" aria-label="스킬 검색">
-    <button class="chip" type="button" data-filter="personal" aria-pressed="false">개인</button>
-    <button class="chip" type="button" data-filter="project" aria-pressed="false">프로젝트</button>
-    <button class="chip" type="button" data-filter="plugin" aria-pressed="false">플러그인</button>
-    <button class="chip" type="button" data-filter="builtin" aria-pressed="false">Anthropic 기본</button>
+    <input id="q" type="search" placeholder="${esc(T.searchPlaceholder)}" aria-label="${esc(T.searchLabel)}">
+    <button class="chip" type="button" data-filter="personal" aria-pressed="false">${esc(T.source.personal)}</button>
+    <button class="chip" type="button" data-filter="project" aria-pressed="false">${esc(T.source.project)}</button>
+    <button class="chip" type="button" data-filter="plugin" aria-pressed="false">${esc(T.source.plugin)}</button>
+    <button class="chip" type="button" data-filter="builtin" aria-pressed="false">${esc(T.source.builtin)}</button>
   </div>
-  <p id="noresult">조건에 맞는 스킬이 없습니다.</p>
+  <p id="noresult">${esc(T.noResult)}</p>
 
 ${sections.join("\n")}
 </div>
@@ -934,25 +1106,18 @@ ${js}
 
 // ---------------------------------------------------------------------------
 
-const USAGE = `사용법: node scan-skills.mjs [검색어] [옵션]
-
-로컬 Claude Code 스킬 스캐너
-
-  검색어                      이름/설명 검색 (대소문자 무시)
-  --source <출처>             project|personal|plugin|builtin. 여러 번 지정 가능
-  --bundled <경로>            Anthropic 기본 스킬 목록 JSON
-                              [{ "name", "description", "namespace" }]
-  --enabled-only              비활성 플러그인의 스킬은 제외
-  --full                      마크다운에서 설명을 자르지 않음
-  --html <경로>               HTML 카탈로그를 그 경로에 쓴다 (기본 출력 형식)
-  --json                      원본 데이터 출력 (description 전문 포함)
-  --project <경로>            프로젝트 루트 (기본: 현재 디렉터리)
-  --claude-home <경로>        Claude 홈 (기본: ~/.claude)
-  --cache <경로>              번역 캐시 JSON (있으면 한국어 설명으로 치환)
-  -h, --help                  이 도움말
-`;
-
 function parseArgs(argv) {
+  // --help와 오류 메시지도 선택한 언어로 나와야 하므로 언어부터 정한다.
+  const langAt = argv.indexOf("--lang");
+  if (langAt !== -1) {
+    const value = argv[langAt + 1];
+    if (!Object.prototype.hasOwnProperty.call(STRINGS, value)) {
+      console.error(T.flagBadLang(value ?? ""));
+      process.exit(2);
+    }
+    T = STRINGS[value];
+  }
+
   const opts = {
     query: null,
     sources: [],
@@ -972,7 +1137,7 @@ function parseArgs(argv) {
     const next = () => {
       const v = argv[++i];
       if (v === undefined) {
-        console.error(`오류: ${arg} 에 값이 필요합니다.`);
+        console.error(T.flagNeedsValue(arg));
         process.exit(2);
       }
       return v;
@@ -981,8 +1146,11 @@ function parseArgs(argv) {
     switch (arg) {
       case "-h":
       case "--help":
-        process.stdout.write(USAGE);
+        process.stdout.write(T.usage);
         process.exit(0);
+        break;
+      case "--lang":
+        next(); // 위에서 이미 처리했다. 값만 건너뛴다.
         break;
       case "--json":
         opts.json = true;
@@ -996,7 +1164,7 @@ function parseArgs(argv) {
       case "--source": {
         const v = next();
         if (!valid.has(v)) {
-          console.error(`오류: --source 는 project|personal|plugin|builtin 중 하나여야 합니다 (받은 값: ${v})`);
+          console.error(T.flagBadSource(v));
           process.exit(2);
         }
         opts.sources.push(v);
@@ -1019,7 +1187,7 @@ function parseArgs(argv) {
         break;
       default:
         if (arg.startsWith("-")) {
-          console.error(`오류: 알 수 없는 옵션 ${arg}\n\n${USAGE}`);
+          console.error(`${T.flagUnknown(arg)}\n\n${T.usage}`);
           process.exit(2);
         }
         if (opts.query === null) opts.query = arg;
@@ -1084,7 +1252,7 @@ function main() {
     const target = path.resolve(expandHome(opts.html));
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, renderHtml(entries, translations, projectDir, claudeHome), "utf8");
-    process.stdout.write(`HTML 카탈로그 ${entries.length}개 항목 → ${target}\n`);
+    process.stdout.write(`${T.htmlWritten(entries.length, target)}\n`);
   } else if (opts.json) {
     process.stdout.write(
       `${JSON.stringify(
