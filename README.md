@@ -1,21 +1,41 @@
 # skill-view
 
-로컬에 설치된 Claude Code 스킬을 스캔해 **이름 / 하는 일 / 실행 커맨드 / 삭제 방법**을
-한국어 표로 정리해 주는 Claude Code 스킬입니다.
+*[한국어 문서](README.ko.md)*
 
-스킬을 여기저기서 설치하다 보면 "지금 뭐가 깔려 있는지", "이건 어떻게 지우는지"가
-금방 흐려집니다. 특히 플러그인으로 들어온 스킬은 개별 삭제가 안 되는데 그게 어디에도
-안 보입니다. 이 스킬은 매 실행마다 새로 스캔해서 그걸 한눈에 보여줍니다.
+Scans every skill you can call in Claude Code and builds a browsable **HTML catalog** —
+what each one does, **how to actually use it**, and where it came from.
 
-## 무엇을 알려주나
+Install skills from a few places and it gets hazy fast: what's actually here, and what do I
+type to use it? A name and a one-line description don't answer the second question. Plugin
+skills can't be removed individually, and nothing tells you that either. Every run rescans,
+so the catalog is never stale.
 
-- 프로젝트 / 개인 / 플러그인 **세 곳을 모두** 스캔
-- 플러그인 스킬은 `plugin@marketplace`로 역추적해 **정확한 삭제 명령** 제시
-  (개별 스킬만 지울 수 없다는 경고 포함)
-- **비활성 플러그인** 표시 — 설치돼 있어도 호출되지 않는 스킬을 구분
-- **중복 감지** — 같은 스킬이 개인 설치본과 플러그인 양쪽에 있으면 한쪽을 지워도 남습니다
+## What's on a card
 
-## 설치
+One card per skill.
+
+- **The command** — with its `argument-hint`, exactly as you'd type it
+- **2–4 usage examples** — `"pull just the tables out of this PDF"` → *reads the tables and
+  returns them as text or a table*. Skills you never invoke directly (design guides and the
+  like) say so instead of pretending otherwise
+- **Install · Remove · Path** — both directions, equal weight. This is a catalog, not a
+  cleanup tool, so removal doesn't lead
+- The page carries its own **search box and source filters**, so dozens of skills stay workable
+
+Four sources are covered:
+
+| Source | Where it looks |
+|---|---|
+| Personal | `~/.claude/skills/` |
+| Project | `<project>/.claude/skills/` |
+| Plugin | `~/.claude/plugins/cache/` — traced back to `plugin@marketplace` for the exact command |
+| Anthropic built-in | Not on disk. Supplied by the caller (see below) |
+
+**Disabled plugins** get a badge — start there when a skill isn't showing up. **Duplicate
+names** are flagged too: if the same skill sits in both a personal install and a plugin,
+removing one leaves the other.
+
+## Install
 
 ```bash
 git clone https://github.com/minidice/skill-view.git ~/.claude/skills/skill-view
@@ -27,75 +47,105 @@ Windows PowerShell:
 git clone https://github.com/minidice/skill-view.git "$env:USERPROFILE\.claude\skills\skill-view"
 ```
 
-Claude Code를 재시작하면 `/skill-view`로 잡힙니다. 특정 프로젝트에서만 쓰려면
-`~/.claude/skills/` 대신 `<프로젝트>/.claude/skills/`에 두면 됩니다.
+Restart Claude Code and `/skill-view` picks it up. To scope it to one project, put it in
+`<project>/.claude/skills/` instead of `~/.claude/skills/`.
 
-## 사용
+## Use
 
-Claude Code 안에서:
+Inside Claude Code:
 
 ```
-/skill-view
-/skill-view ralph
-/skill-view --source plugin
+/skill-view                            everything
+/skill-view pdf                        only skills whose name, description or examples mention pdf
+/skill-view --source personal          only what you installed yourself
+/skill-view --source builtin docx      combine a query with a source
 ```
 
-또는 스크립트를 직접:
+Claude scans, builds the HTML, publishes it as an Artifact and hands you the link. To narrow
+a page that's already open, the search box on the page beats re-running the command.
+
+You can also drive the script directly:
 
 ```bash
-node scripts/scan-skills.mjs            # 마크다운 표
-node scripts/scan-skills.mjs --json     # 원본 데이터
+node scripts/scan-skills.mjs --html out.html    # HTML catalog
+node scripts/scan-skills.mjs                    # markdown table
+node scripts/scan-skills.mjs --json             # raw data
 node scripts/scan-skills.mjs --help
 ```
 
-**Node 18+ 이면 되고 외부 의존성은 없습니다.** 표준 모듈만 씁니다. Claude Code를 쓰는 환경이면 대개 이미 갖춰져 있습니다.
+**Node 18+, no dependencies.** Standard library only.
 
-## 출력 예시
+## Language
 
-```markdown
-# 설치된 스킬 92개 (이름 기준 56종)
+UI labels ship in English and Korean; `--lang ko|en` picks one, defaulting to the system
+locale. Claude passes the language you're actually writing in, which is not always the same
+thing — an English Windows install doesn't mean you want an English page.
 
-## 개인 — `C:\Users\you\.claude\skills` — 36개
+`--lang` covers **labels only** (`Install`, `How to use it`, source names). Skill descriptions
+and examples are written by the caller, in the caller's language. To add a language, drop an
+entry into `STRINGS` at the top of `scripts/scan-skills.mjs`; every label goes through it.
 
-> 삭제: 해당 스킬 디렉터리를 지우면 됩니다.
+## Built-in skills and usage examples
 
-| 스킬 | 커맨드 | 하는 일 |
-|---|---|---|
-| ralph | `/ralph [--no-deslop] <task>` | Self-referential loop until task completion... |
+Built-ins like `docx`, `code-review` and `design` have **no `SKILL.md` on disk** — the session
+carries them, so a file scan can't see them. Usage examples aren't in frontmatter either.
 
-## 플러그인 — 56개
+Both arrive through one JSON file:
 
-### telegram@claude-plugins-official (v0.0.4, 2개) — ⏸ 비활성
-
-> 비활성 상태라 아래 스킬은 지금 호출되지 않습니다. 켜기: `claude plugin enable telegram@...`
-> 삭제: `claude plugin uninstall telegram@...` — 개별 스킬만 지울 수는 없고 아래 2개가 함께 사라집니다.
-
-## ⚠ 중복 — 36종
-
-- **oh-my-claudecode@omc ↔ personal** — 36종: ai-slop-cleaner, ask, autopilot, ...
+```bash
+node scripts/scan-skills.mjs --html out.html --bundled bundled.json
 ```
 
-## 설명 번역에 대해
+```json
+[
+  {
+    "name": "docx",
+    "namespace": "anthropic-skills",
+    "description": "Creates, reads and edits Word documents (.docx, .dotx).",
+    "examples": [
+      { "say": "turn this into a Word report", "does": "a .docx with a table of contents and styling" },
+      { "say": "read report.docx and summarize it", "does": "pulls the text and tables out" }
+    ]
+  }
+]
+```
 
-스킬 description은 대부분 영어입니다. 스크립트는 **원문을 그대로 출력하고**, Claude가 읽을 때
-한국어 요약을 덧붙입니다. 번역 사전을 코드에 넣지 않는 이유는, 새 스킬을 설치하면 바로
-누락되기 때문입니다 — "항상 최신 상태"라는 목적과 충돌합니다.
+- If a skill of that name **is already installed on disk**, no second card is created — the
+  `examples` are merged onto the existing one. That's how installed skills get examples too.
+- `namespace` is only for skills whose command takes a prefix (`/anthropic-skills:docx`).
+- Example text is searchable, so a skill can be found by a word that appears nowhere in its
+  description.
 
-반복 실행의 토큰 비용이 신경 쓰이면 `--cache <경로>`로 번역 캐시 JSON을 지정할 수 있습니다.
-`{ "<description의 sha256 앞 16자>": "한국어 설명" }` 형태이고, 원문이 바뀌면 키가 달라져
-자동으로 무효화됩니다.
+The list isn't hardcoded because it would go stale every time Anthropic adds or drops a skill.
+`SKILL.md` tells Claude to read the current session list and write it fresh each time.
 
-## 동작 방식
+## Description translation
 
-각 `SKILL.md`의 frontmatter 블록만 읽고 즉시 중단합니다. YAML 파서도 쓰지 않아
-의존성이 0이고, 100개 가까운 스킬도 1초 안에 끝납니다. **읽기 전용이라
-파일을 쓰거나 지우지 않습니다.**
+Descriptions on installed skills are usually English and often long. The script prints them
+**verbatim** and Claude summarizes when it reads the output. No translation dictionary is
+baked in — a new skill would be missing from it immediately, which defeats the point of
+rescanning.
 
-플러그인 메타데이터는 다음에서 읽습니다:
+If repeated runs cost more tokens than you'd like, `--cache <path>` takes a translation cache:
+`{ "<first 16 chars of the description's sha256>": "translated text" }`. Change the source
+description and the key no longer matches, so the cache invalidates itself.
 
-- `~/.claude/plugins/installed_plugins.json` — 설치 경로 → `plugin@marketplace` 매핑
-- `~/.claude/settings.json`의 `enabledPlugins` — 활성/비활성 (프로젝트 설정이 우선)
+## How it works
 
-## 라이선스
+Reads only the frontmatter block at the top of each `SKILL.md`, then stops. No YAML parser, so
+zero dependencies, and ~100 skills finish well under a second. No network calls.
+
+**Skill directories are read-only to this tool.** The one file it writes is the `--html`
+output, and it deletes nothing.
+
+The generated HTML is self-contained: fonts come from Google Fonts, everything else lives in
+the file. Open it in a browser or publish it as an Artifact. Light and dark themes both work.
+
+Plugin metadata comes from:
+
+- `~/.claude/plugins/installed_plugins.json` — install path → `plugin@marketplace`
+- `enabledPlugins` in `~/.claude/settings.json` — enabled/disabled, project settings winning
+
+## License
 
 MIT
